@@ -965,6 +965,16 @@
   $('statsRange').addEventListener('change', loadStats);
   $('statsClose').addEventListener('click', function () { statsDlg.close(); });
 
+  // Pieskāriens ārpus loga (uz aptumšotā fona) aizver logu bez saglabāšanas, tāpat kā "Atcelt".
+  document.querySelectorAll('dialog').forEach(function (d) {
+    d.addEventListener('click', function (e) {
+      if (e.target !== d) return;   // pieskāriens loga saturam
+      var r = d.getBoundingClientRect();
+      var inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+      if (!inside) d.close();
+    });
+  });
+
   // ---------- Pilnekrāna režīms ----------
   // Paslēpj pārlūka adreses joslu un navigāciju; atkārtots pieskāriens atgriež parasto skatu.
   var fsRoot = document.documentElement;
