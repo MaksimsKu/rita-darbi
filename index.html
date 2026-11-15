@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="lv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Rīta darbi</title>
+<style>
+  :root {
+    --bg: #eef4fb;
+    --card: #ffffff;
+    --text: #1d2b3a;
+    --muted: #6b7c8f;
+    --ok: #2fa84f;
+    --ok-bg: #dff5e4;
+    --warn: #e6a100;
+    --late: #e0453a;
+    --accent: var(--ok);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; }
+  /* Viss ietilpst vienā ekrānā: lapa neritinās, saturs sarūk līdzi vietai. */
+  body {
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    padding: 12px;
+    gap: 12px;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  /* Taimeris */
+  .timer {
+    flex: none;
+    background: var(--card);
+    border-radius: 24px;
+    padding: 10px 64px 14px;
+    text-align: center;
+    box-shadow: 0 2px 10px rgba(30, 60, 90, .08);
+    position: relative;
+  }
+  .now { font-size: clamp(1rem, 3vh, 1.5rem); font-weight: 600; }
+  .now b { font-variant-numeric: tabular-nums; font-weight: 800; }
+  .timer-label { font-size: clamp(.9rem, 2.4vh, 1.2rem); color: var(--muted); font-weight: 600; }
+  .timer-value {
+    font-size: min(16vw, 12vh);
+    font-weight: 800;
+    line-height: 1.05;
+    font-variant-numeric: tabular-nums;
+    color: var(--accent);
+    transition: color .5s;
+    white-space: nowrap;
+  }
+  .timer.late .timer-value { font-size: min(11vw, 12vh); animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .45; } }
+  /* Gaidīšanas skats: taimera vietā liels pulkstenis neitrālā krāsā. */
+  .timer.idle .timer-value { color: var(--text); }
+  .timer.idle .now-time, .timer.idle .timer-label, .timer.idle .bar { display: none; }
+  .bar { height: 10px; background: #e3eaf2; border-radius: 5px; overflow: hidden; margin-top: 6px; }
+  .bar-fill { height: 100%; width: 0; background: var(--accent); border-radius: 5px; transition: width 1s linear, background .5s; }
+  .gear {
+    position: absolute; top: 8px; right: 8px;
+    width: 48px; height: 48px; border: 0; border-radius: 50%;
+    background: transparent; font-size: 1.6rem; opacity: .35; cursor: pointer;
+  }
+  .stats-btn { right: auto; left: 8px; }
+
+  /* Bērnu kolonnas: vienmēr visas blakus, aizpilda atlikušo augstumu. */
+  .kids {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: repeat(var(--kids, 2), minmax(0, 1fr));
+    gap: 12px;
+  }
+  .kid {
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    background: var(--card);
+    border-radius: 24px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    box-shadow: 0 2px 10px rgba(30, 60, 90, .08);
+    transition: background .4s;
+  }
+  .kid.all-done { background: var(--ok-bg); }
+  .kid-name {
+    flex: none;
+    font-size: clamp(1.1rem, 4vh, 2rem);
+    font-weight: 800; text-align: center; margin: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  /* Uzdevumi dala kolonnas augstumu vienādās daļās; burtu izmērs sarūk līdzi. */
+  .tasks {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-rows: repeat(var(--n, 3), minmax(0, 1fr));
+    gap: 6px;
+    container-type: size;
+  }
+  .task {
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    gap: .5em;
+    padding: 0 .7em;
+    border: 3px solid #d7e0ea;
+    border-radius: 16px;
+    background: #f8fafc;
+    color: inherit;
+    font: inherit;
+    font-weight: 700;
+    /* Rezerves izmērs pārlūkiem bez konteineru vienībām. */
+    font-size: clamp(.75rem, calc(45vh / var(--n, 3) * .36), 1.6rem);
+    font-size: clamp(.75rem, min(calc(100cqh / var(--n, 3) * .36), 6.5cqw), 1.6rem);
+    line-height: 1.1;
+    text-align: left;
+    cursor: pointer;
+    transition: transform .1s, background .25s, border-color .25s;
+  }
+  .task:active { transform: scale(.97); }
+  .task .emoji { font-size: 1.5em; flex: none; }
+  .task .label { flex: 1; min-width: 0; }
+  .task .check {
+    width: 1.7em; height: 1.7em; flex: none;
+    border: .13em solid #c3cfdb; border-radius: 50%;
+    display: grid; place-items: center;
+    color: transparent; background: #fff;
+    transition: all .25s;
+  }
+  .task.done { background: var(--ok-bg); border-color: var(--ok); }
+  .task.done .label { color: #3d7a4e; }
+  .task.done .check { background: var(--ok); border-color: var(--ok); color: #fff; }
+
+  /* Sajūtu poga uzdevumu skatā */
+  .mood-btn {
+    flex: none; min-width: 0; overflow: hidden; white-space: nowrap;
+    display: flex; align-items: center; justify-content: center; gap: .5em;
+    padding: .35em .6em; border: 3px solid #d7e0ea; border-radius: 16px;
+    background: #f8fafc; color: var(--muted); font: inherit; font-weight: 700;
+    font-size: clamp(.85rem, 2.6vh, 1.3rem); cursor: pointer;
+  }
+  .mood-btn .face { font-size: 1.4em; line-height: 1; }
+  .mood-btn.chosen { background: #fff6d6; border-color: #f2c230; color: var(--text); }
+
+  /* Gaidīšanas skats: liela poga katram cilvēkam; uzspiežot atveras emociju izvēle. */
+  .kids.mood-only {
+    grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr));
+    grid-auto-rows: minmax(0, 1fr);
+  }
+  .person {
+    border: 3px solid transparent; color: inherit; font: inherit; cursor: pointer;
+    align-items: center; justify-content: center; text-align: center; gap: 0;
+    container-type: size;
+  }
+  .person:active { transform: scale(.98); }
+  .person.chosen { background: #fff6d6; border-color: #f2c230; }
+  .person-name {
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 800;
+    font-size: 6vh;
+    font-size: clamp(1.4rem, min(20cqh, 13cqw), 4.5rem);
+  }
+  .person-face { line-height: 1.15; font-size: 12vh; font-size: min(36cqh, 24cqw); }
+  .person:not(.chosen) .person-face { opacity: .25; }
+  .person-label {
+    font-weight: 700; color: var(--muted);
+    font-size: 3vh;
+    font-size: clamp(.9rem, min(10cqh, 7cqw), 2rem);
+  }
+  .person.chosen .person-label { color: var(--text); }
+
+  /* Emociju izvēles logs */
+  #picker { width: min(1000px, 96vw); padding: 16px 20px; }
+  #picker h2 { margin: 0 0 12px; text-align: center; }
+  .picker-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  @media (orientation: portrait) {
+    .picker-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  }
+  .pick {
+    min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 2px;
+    padding: 6px 2px; border: 3px solid #d7e0ea; border-radius: 16px;
+    background: #f8fafc; color: var(--text); font: inherit; font-weight: 700;
+    font-size: clamp(.75rem, min(2.4vh, 2.6vw), 1.15rem); cursor: pointer;
+  }
+  .pick .face { font-size: min(7.5vh, 9vw); line-height: 1.15; }
+  .pick { background: hsl(var(--h, 60), 85%, 93%); border-color: hsl(var(--h, 60), 60%, 82%); }
+  .pick.selected {
+    background: hsl(var(--h, 60), 85%, 84%); border-color: hsl(var(--h, 60), 70%, 38%);
+    box-shadow: 0 0 0 3px hsla(var(--h, 60), 70%, 38%, .3);
+  }
+
+  /* Izvēlētā emocija pa visu ekrānu (5 sekundes pēc izvēles) */
+  #splash {
+    position: fixed; inset: 0; z-index: 10;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: rgba(238, 244, 251, .97); cursor: pointer; overflow: hidden;
+    transition: opacity .3s;
+  }
+  #splash[hidden] { display: none; }
+  #splash.leaving { opacity: 0; }
+  .splash-face {
+    font-size: min(58vh, 62vw); line-height: 1.1;
+    animation: splash-pop .6s cubic-bezier(.2, 1.6, .4, 1) both, splash-float 2.4s ease-in-out .6s infinite;
+  }
+  .splash-label { font-size: min(8vh, 9vw); font-weight: 800; animation: splash-fade .5s .3s both; }
+  @keyframes splash-pop {
+    from { transform: scale(.2) rotate(-20deg); opacity: 0; }
+    to { transform: scale(1) rotate(0); opacity: 1; }
+  }
+  @keyframes splash-float {
+    0%, 100% { transform: translateY(0) rotate(0) scale(1); }
+    25% { transform: translateY(-4%) rotate(-6deg) scale(1.04); }
+    75% { transform: translateY(3%) rotate(6deg) scale(.98); }
+  }
+  @keyframes splash-fade { from { opacity: 0; transform: translateY(20%); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) {
+    .splash-face, .splash-label { animation: none; }
+  }
+
+  /* Dialogi */
+  dialog {
+    border: 0; border-radius: 20px; padding: 24px;
+    width: min(520px, 92vw); max-height: 92vh; overflow: auto; color: var(--text);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, .3);
+    user-select: text; -webkit-user-select: text;
+  }
+  dialog::backdrop { background: rgba(20, 30, 45, .5); }
+  dialog h2 { margin: 0 0 16px; }
+  dialog label, dialog .field-title { display: block; font-weight: 600; margin: 14px 0 6px; }
+  dialog small { color: var(--muted); font-weight: 400; }
+  dialog input[type=text], dialog textarea, dialog select {
+    font: inherit; font-size: 1.1rem; padding: 10px 12px;
+    border: 2px solid #d7e0ea; border-radius: 10px; background: #fff;
+  }
+  dialog input[type=text], dialog textarea { width: 100%; }
+  dialog textarea { resize: vertical; }
+  .time-row { display: flex; align-items: center; gap: 8px; font-size: 1.3rem; font-weight: 700; }
+  .task-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 4px 12px; }
+  .task-options label { display: flex; align-items: center; gap: 10px; margin: 0; padding: 8px 4px; font-weight: 500; cursor: pointer; }
+  .task-options input { width: 24px; height: 24px; flex: none; }
+  .buttons { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
+  .buttons button {
+    font: inherit; font-weight: 700; padding: 12px 18px;
+    border: 0; border-radius: 12px; cursor: pointer; background: #e3eaf2; color: var(--text);
+  }
+  .buttons .primary { background: var(--ok); color: #fff; margin-left: auto; }
+
+  /* Statistika */
+  #stats { width: min(720px, 94vw); }
+  .stats-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .stats-head h2 { margin: 0; flex: 1; }
+  .stats-body { max-height: 60vh; overflow: auto; }
+  .stats-body table { width: 100%; border-collapse: collapse; }
+  .stats-body th, .stats-body td { padding: 8px 10px; text-align: center; border-bottom: 1px solid #e3eaf2; }
+  .stats-body th { position: sticky; top: 0; background: #fff; font-size: 1.1rem; }
+  .stats-body th:first-child, .stats-body td:first-child { text-align: left; color: var(--muted); white-space: nowrap; }
+  .stats-body td.face { font-size: 1.8rem; }
+  .stats-body tr.summary td { font-weight: 600; background: #f8fafc; }
+  .stats-msg { text-align: center; color: var(--muted); padding: 24px 0; }
+</style>
+</head>
+<body>
+
+<section class="timer" id="timer">
+  <button class="gear stats-btn" id="statsBtn" aria-label="Garastāvokļa statistika">📊</button>
+  <button class="gear" id="gear" aria-label="Iestatījumi">⚙️</button>
+  <div class="now"><span id="nowDate"></span><span class="now-time"> · <b id="nowTime"></b></span></div>
+  <div class="timer-value" id="timerValue">--:--</div>
+  <div class="timer-label" id="timerLabel">Līdz izbraukšanai</div>
+  <div class="bar"><div class="bar-fill" id="barFill"></div></div>
+</section>
+
+<main class="kids" id="kids"></main>
+
+<dialog id="settings">
+  <form method="dialog" id="settingsForm">
+    <h2>Iestatījumi</h2>
+    <div class="field-title">Izbraukšanas laiks</div>
+    <div class="time-row">
+      <select id="sHour" aria-label="Stundas"></select> :
+      <select id="sMinute" aria-label="Minūtes"></select>
+    </div>
+    <label for="sKids">Bērni <small>(katrs savā rindā)</small></label>
+    <textarea id="sKids" rows="3"></textarea>
+    <label for="sParents">Vecāki <small>(katrs savā rindā; redzami tikai sajūtu skatā)</small></label>
+    <textarea id="sParents" rows="2"></textarea>
+    <div class="field-title">Uzdevumi</div>
+    <div class="task-options" id="sTasks"></div>
+    <label for="sCode">Ģimenes kods <small>(vismaz 6 zīmes; vienāds visās ierīcēs, vajadzīgs datu saglabāšanai)</small></label>
+    <input type="text" id="sCode" minlength="6" maxlength="72" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <div class="buttons">
+      <button type="button" id="sReset">Notīrīt šodienas atzīmes</button>
+      <button type="button" id="sCancel">Atcelt</button>
+      <button type="submit" class="primary">Saglabāt</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="splash" hidden>
+  <div class="splash-face" id="splashFace"></div>
+  <div class="splash-label" id="splashLabel"></div>
+</div>
+
+<dialog id="picker">
+  <h2 id="pickerTitle"></h2>
+  <div class="picker-grid" id="pickerGrid"></div>
+  <div class="buttons">
+    <button type="button" class="primary" id="pickerClose">Aizvērt</button>
+  </div>
+</dialog>
+
+<dialog id="stats">
+  <div class="stats-head">
+    <h2>Kā mēs jutāmies</h2>
+    <select id="statsRange" aria-label="Periods">
+      <option value="30">Pēdējās 30 dienas</option>
+      <option value="90">Pēdējās 90 dienas</option>
+      <option value="365">Pēdējais gads</option>
+    </select>
+  </div>
+  <div class="stats-body" id="statsBody"></div>
+  <div class="buttons">
+    <button type="button" class="primary" id="statsClose">Aizvērt</button>
+  </div>
+</dialog>
+
+<script>
+(function () {
+  'use strict';
+
+  var CONFIG_KEY = 'ritaDarbi.config';
+  var STATE_KEY = 'ritaDarbi.state2';
+  var PENDING_KEY = 'ritaDarbi.pending';
+  var COUNTDOWN_WINDOW_MIN = 60;   // progresa josla pilna, ja atlikusi stunda vai vairāk
+  var LATE_WINDOW_MIN = 10;        // cik ilgi pēc izbraukšanas laika vēl rādīt uzdevumus un "Laiks braukt!"
+  var TASKS_BEFORE_MIN = 60;       // uzdevumi parādās tik minūtes pirms izbraukšanas; pārējā laikā — tikai sajūtu skalas
+
+  // Visi pieejamie uzdevumi; iestatījumos ar ķeksi izvēlas, kurus rādīt.
+  // Jaunus pievieno tikai saraksta beigās — atzīmes ir piesietas kārtas numuram.
+  var ALL_TASKS = [
+    '🥣 Paēst brokastis',
+    '🍱 Sataisīt kastīti',
+    '🪥 Iztīrīt zobus',
+    '📚 Paņemt mājasdarbus',
+    '🎒 Salikt somu',
+    '💊 Iedzert vitamīnus',
+    '👕 Saģērbties'
+  ];
+
+  // Emocijas rādīšanas secībā (no sliktākās uz labāko sajūtu).
+  // id ir tas, kas glabājas datubāzē: to nedrīkst mainīt vai izmantot atkārtoti,
+  // jaunām emocijām jādod nākamais brīvais numurs.
+  var MOODS = [
+    { id: 0, face: '😠', label: 'Dusmīgs' },
+    { id: 5, face: '😢', label: 'Bēdīgs' },
+    { id: 6, face: '😨', label: 'Nobijies', retired: true },
+    { id: 7, face: '😟', label: 'Uztraucies' },
+    { id: 8, face: '😞', label: 'Vīlies', retired: true },
+    { id: 9, face: '🤒', label: 'Slikti jūtos' },
+    { id: 10, face: '😬', label: 'Nepacietīgs' },
+    { id: 11, face: '🤤', label: 'Izbadējies' },
+    { id: 12, face: '😩', label: 'Noguris' },
+    { id: 1, face: '😴', label: 'Miegains' },
+    { id: 13, face: '😑', label: 'Garlaicīgi' },
+    { id: 2, face: '😐', label: 'Normāli' },
+    { id: 14, face: '😌', label: 'Mierīgs' },
+    { id: 15, face: '🤔', label: 'Ziņkārīgs' },
+    { id: 3, face: '😎', label: 'Darbīgs' },
+    { id: 16, face: '😜', label: 'Draiskulīgs' },
+    { id: 17, face: '🤸', label: 'Lēkājošs', retired: true },
+    { id: 4, face: '😄', label: 'Priecīgs' },
+    { id: 18, face: '🥰', label: 'Laimīgs' }
+  ];
+  // "retired" emocijas vairs nevar izvēlēties, bet vecie ieraksti statistikā joprojām tiek atpazīti.
+  var PICKABLE_MOODS = MOODS.filter(function (m) { return !m.retired; });
+  var MOOD_BY_ID = {};
+  MOODS.forEach(function (m) { MOOD_BY_ID[m.id] = m; });
+
+  var DEFAULT_CONFIG = {
+    time: '07:30',
+    kids: ['Bērns 1', 'Bērns 2'],
+    parents: ['Mamma', 'Tētis'],
+    tasks: ALL_TASKS.slice(0, 3)
+  };
+
+  function load(key, fallback) {
+    try {
+      var v = JSON.parse(localStorage.getItem(key));
+      return v && typeof v === 'object' ? v : fallback;
+    } catch (e) { return fallback; }
+  }
+  function save(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) {}
+  }
+  function saveConfig() { save(CONFIG_KEY, config); }
+  function saveState() { save(STATE_KEY, state); }
+
+  var config = Object.assign({}, DEFAULT_CONFIG, load(CONFIG_KEY, {}));
+  // Izvēlētie uzdevumi vienmēr ir ALL_TASKS apakškopa tā secībā.
+  config.tasks = ALL_TASKS.filter(function (t) { return config.tasks.indexOf(t) >= 0; });
+
+  // done: "bērns|uzdevuma numurs" -> true; mood: bērns -> garastāvokļa numurs.
+  var state = load(STATE_KEY, { day: '', done: {}, mood: {} });
+  state.done = state.done || {};
+  state.mood = state.mood || {};
+
+  var $ = function (id) { return document.getElementById(id); };
+  var kidsEl = $('kids');
+
+  // ---------- Datubāze (Supabase) ----------
+  // Dati pieejami tikai caur funkcijām, kas prasa ģimenes kodu (to ievada iestatījumos).
+  // Atslēga ir publiskā (publishable) atslēga.
+  var DB_URL = 'https://aotivjjetkvjhiephaqk.supabase.co/rest/v1/rpc/';
+  var DB_KEY = 'sb_publishable_nFM999ZXUH6J0kQ7jGKzfQ_dOIEa78M';
+
+  function rpc(name, args) {
+    return fetch(DB_URL + name, {
+      method: 'POST',
+      headers: { apikey: DB_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify(args)
+    }).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.status === 204 ? null : r.json();
+    });
+  }
+
+  // Vēl nenosūtītās garastāvokļa izmaiņas: "diena|bērns" -> numurs vai null (dzēst).
+  // Glabājas lokāli, lai nekas nepazustu, ja brīdī nav interneta.
+  var pending = load(PENDING_KEY, {});
+  var flushing = false;
+
+  function queueMood(day, child, mood) {
+    pending[day + '|' + child] = mood;
+    save(PENDING_KEY, pending);
+    flush();
+  }
+
+  function flush() {
+    var keys = Object.keys(pending);
+    // Bez ģimenes koda izmaiņas gaida rindā, līdz kods tiek ievadīts.
+    if (flushing || !keys.length || !config.code) return;
+    flushing = true;
+    var key = keys[0];
+    var value = pending[key];
+    var sep = key.indexOf('|');
+    rpc('save_mood', {
+      p_code: config.code,
+      p_day: key.slice(0, sep),
+      p_child: key.slice(sep + 1),
+      p_mood: value   // null nozīmē dzēst ierakstu
+    }).then(function () {
+      // Ja pa to laiku izvēle mainīta vēlreiz, atstāj rindā jaunāko vērtību.
+      if (pending[key] === value) { delete pending[key]; save(PENDING_KEY, pending); }
+      flushing = false;
+      flush();
+    }, function () { flushing = false; });
+  }
+
+  // Nodzēš šodienas garastāvokļus gan ekrānā, gan datubāzē.
+  function clearMoods() {
+    Object.keys(state.mood).forEach(function (name) { queueMood(state.day, name, null); });
+    state.mood = {};
+  }
+
+  // Bērnu saraksts glabājas datubāzē, lai visās ierīcēs tas būtu vienāds.
+  // Ja lokālās izmaiņas vēl nav nosūtītas (kidsDirty), tās sūta; citādi paņem sarakstu no datubāzes.
+  function peopleKey() { return config.kids.join('|') + '||' + config.parents.join('|'); }
+
+  function syncKids() {
+    if (!config.code) return;
+    if (config.kidsDirty) {
+      var sent = peopleKey();
+      rpc('set_people', { p_code: config.code, p_kids: config.kids, p_parents: config.parents }).then(function () {
+        if (peopleKey() === sent) { config.kidsDirty = false; saveConfig(); }
+      }, function () {});
+      return;
+    }
+    rpc('get_people', { p_code: config.code }).then(function (people) {
+      if (!people || !Array.isArray(people.kids) || !Array.isArray(people.parents) || config.kidsDirty) return;
+      var before = peopleKey();
+      // Ja datubāzē kāda saraksta vēl nav, paliek šīs ierīces saraksts un to nosūta.
+      var missing = !people.kids.length || (!people.parents.length && config.parents.length);
+      if (people.kids.length) config.kids = people.kids;
+      if (people.parents.length) config.parents = people.parents;
+      if (missing) config.kidsDirty = true;
+      if (missing || peopleKey() !== before) saveConfig();
+      if (peopleKey() !== before) render();
+      if (missing) syncKids();
+    }, function () {});
+  }
+
+  // ---------- Laiks ----------
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function dayKey(d) {
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  }
+  // Nākamais izbraukšanas brīdis. 10 minūtes pēc izbraukšanas pārslēdzas uz rītdienu.
+  function getTarget(now) {
+    var parts = config.time.split(':');
+    var t = new Date(now);
+    t.setHours(+parts[0], +parts[1], 0, 0);
+    if (now - t > LATE_WINDOW_MIN * 60000) t.setDate(t.getDate() + 1);
+    return t;
+  }
+  // 'tasks': pēdējā stunda pirms izbraukšanas un 10 minūtes pēc tās — bērni ar uzdevumiem.
+  // 'mood': pārējā laikā — tikai sajūtu skalas bērniem un vecākiem.
+  function getMode(now) {
+    return getTarget(now) - now > TASKS_BEFORE_MIN * 60000 ? 'mood' : 'tasks';
+  }
+  var mode = getMode(new Date());
+
+  // Sadala "🥣 Paēst brokastis" emocijzīmē un tekstā.
+  function splitTask(s) {
+    var m = s.match(/^([^\p{L}\p{N}]+)\s*(.+)$/u);
+    return m ? { emoji: m[1].trim(), label: m[2] } : { emoji: '⭐', label: s };
+  }
+
+  function span(cls, text) {
+    var el = document.createElement('span');
+    if (cls) el.className = cls;
+    el.textContent = text;
+    return el;
+  }
+
+  // ---------- Galvenais skats ----------
+  function render() {
+    var moodOnly = mode === 'mood';
+    var people = moodOnly ? config.kids.concat(config.parents) : config.kids;
+    kidsEl.textContent = '';
+    kidsEl.classList.toggle('mood-only', moodOnly);
+    kidsEl.style.setProperty('--kids', Math.max(1, people.length));
+    // Gaidīšanas skatā pogas kārtojas režģī (4 cilvēki -> 2x2).
+    kidsEl.style.setProperty('--cols', Math.max(1, Math.ceil(Math.sqrt(people.length))));
+
+    people.forEach(function (name) {
+      var mood = MOOD_BY_ID[state.mood[name]];
+
+      if (moodOnly) {
+        var person = document.createElement('button');
+        person.className = 'kid person' + (mood ? ' chosen' : '');
+        person.append(
+          span('person-name', name),
+          span('person-face', mood ? mood.face : '🙂'),
+          span('person-label', mood ? mood.label : 'Kā es jūtos?'));
+        person.addEventListener('click', function () { openPicker(name); });
+        kidsEl.appendChild(person);
+        return;
+      }
+
+      var col = document.createElement('section');
+      col.className = 'kid';
+
+      var h = document.createElement('h2');
+      h.className = 'kid-name';
+      col.appendChild(h);
+
+      var tasks = document.createElement('div');
+      tasks.className = 'tasks';
+      tasks.style.setProperty('--n', Math.max(1, config.tasks.length));
+      var doneCount = 0;
+      config.tasks.forEach(function (task) {
+        var id = name + '|' + ALL_TASKS.indexOf(task);
+        var parts = splitTask(task);
+        var btn = document.createElement('button');
+        btn.className = 'task' + (state.done[id] ? ' done' : '');
+        btn.setAttribute('aria-pressed', state.done[id] ? 'true' : 'false');
+        if (state.done[id]) doneCount++;
+        btn.append(span('emoji', parts.emoji), span('label', parts.label), span('check', '✓'));
+        btn.addEventListener('click', function () {
+          if (state.done[id]) delete state.done[id]; else state.done[id] = true;
+          saveState();
+          render();
+        });
+        tasks.appendChild(btn);
+      });
+      col.appendChild(tasks);
+
+      var allDone = config.tasks.length > 0 && doneCount === config.tasks.length;
+      if (allDone) col.classList.add('all-done');
+      h.textContent = allDone ? '🎉 ' + name : name;
+
+      var moodBtn = document.createElement('button');
+      moodBtn.className = 'mood-btn' + (mood ? ' chosen' : '');
+      moodBtn.append(span('face', mood ? mood.face : '🙂'), span('', mood ? mood.label : 'Kā es jūtos?'));
+      moodBtn.addEventListener('click', function () { openPicker(name); });
+      col.appendChild(moodBtn);
+
+      kidsEl.appendChild(col);
+    });
+  }
+
+  // Emociju izvēle vienam cilvēkam. Atkārtots pieskāriens izvēlētajai emocijai to noņem.
+  var pickerDlg = $('picker');
+  function openPicker(name) {
+    $('pickerTitle').textContent = name + ' — kā es jūtos?';
+    var grid = $('pickerGrid');
+    grid.textContent = '';
+    PICKABLE_MOODS.forEach(function (mood, i) {
+      var selected = state.mood[name] === mood.id;
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'pick' + (selected ? ' selected' : '');
+      // Iekrāsojums no sarkana (negatīvās emocijas augšā) līdz zaļam (pozitīvās apakšā).
+      b.style.setProperty('--h', Math.round(i / (PICKABLE_MOODS.length - 1) * 130));
+      b.setAttribute('aria-pressed', selected ? 'true' : 'false');
+      b.append(span('face', mood.face), span('', mood.label));
+      b.addEventListener('click', function () {
+        if (selected) delete state.mood[name]; else state.mood[name] = mood.id;
+        saveState();
+        queueMood(state.day, name, selected ? null : mood.id);
+        render();
+        pickerDlg.close();
+        if (!selected) showSplash(mood);
+      });
+      grid.appendChild(b);
+    });
+    pickerDlg.showModal();
+  }
+  $('pickerClose').addEventListener('click', function () { pickerDlg.close(); });
+
+  // Pēc izvēles emocija 5 sekundes redzama pa visu ekrānu; pieskāriens aizver ātrāk.
+  var SPLASH_MS = 5000;
+  var splash = $('splash');
+  var splashTimer, splashHideTimer;
+  function showSplash(mood) {
+    clearTimeout(splashTimer);
+    clearTimeout(splashHideTimer);
+    $('splashFace').textContent = mood.face;
+    $('splashLabel').textContent = mood.label;
+    splash.classList.remove('leaving');
+    splash.hidden = false;
+    splashTimer = setTimeout(hideSplash, SPLASH_MS);
+  }
+  function hideSplash() {
+    clearTimeout(splashTimer);
+    splash.classList.add('leaving');
+    splashHideTimer = setTimeout(function () {
+      splash.hidden = true;
+      splash.classList.remove('leaving');
+    }, 300);
+  }
+  splash.addEventListener('click', hideSplash);
+
+  function tick() {
+    var now = new Date();
+    var target = getTarget(now);
+
+    // Pulkstenis un datums (24 stundu formātā).
+    var date = now.toLocaleDateString('lv-LV', { weekday: 'long', day: 'numeric', month: 'long' });
+    $('nowDate').textContent = date.charAt(0).toUpperCase() + date.slice(1);
+    $('nowTime').textContent = pad(now.getHours()) + ':' + pad(now.getMinutes());
+
+    // Jauna kalendārā diena — atzīmes un sajūtas sākas no nulles.
+    var key = dayKey(now);
+    var newMode = getMode(now);
+    if (state.day !== key || newMode !== mode) {
+      if (state.day !== key) {
+        state = { day: key, done: {}, mood: {} };
+        saveState();
+      }
+      mode = newMode;
+      render();
+    }
+
+    var ms = target - now;
+    var timer = $('timer');
+    var root = document.documentElement;
+
+    // Gaidīšanas skatā taimeri nerāda — tikai datumu un pulksteni.
+    timer.classList.toggle('idle', mode === 'mood');
+    if (mode === 'mood') {
+      timer.classList.remove('late');
+      $('timerValue').textContent = pad(now.getHours()) + ':' + pad(now.getMinutes());
+      return;
+    }
+
+    if (ms <= 0) {
+      timer.classList.add('late');
+      root.style.setProperty('--accent', 'var(--late)');
+      $('timerLabel').textContent = 'Izbraukšana ' + config.time;
+      $('timerValue').textContent = 'Laiks braukt!';
+      $('barFill').style.width = '0%';
+      return;
+    }
+
+    timer.classList.remove('late');
+    var total = Math.ceil(ms / 1000);
+    var h = Math.floor(total / 3600);
+    var m = Math.floor((total % 3600) / 60);
+    var s = total % 60;
+    $('timerLabel').textContent = 'Līdz izbraukšanai (' + config.time + ')';
+    $('timerValue').textContent = h > 0 ? h + ':' + pad(m) + ':' + pad(s) : pad(m) + ':' + pad(s);
+
+    var minutes = ms / 60000;
+    root.style.setProperty('--accent',
+      minutes <= 5 ? 'var(--late)' : minutes <= 15 ? 'var(--warn)' : 'var(--ok)');
+    $('barFill').style.width = Math.min(100, minutes / COUNTDOWN_WINDOW_MIN * 100) + '%';
+  }
+
+  // ---------- Iestatījumi ----------
+  var dlg = $('settings');
+
+  function fillSelect(sel, values, current) {
+    sel.textContent = '';
+    values.forEach(function (v) {
+      var o = document.createElement('option');
+      o.value = o.textContent = pad(v);
+      sel.appendChild(o);
+    });
+    sel.value = pad(current);
+  }
+
+  $('gear').addEventListener('click', function () {
+    // Laiks ar diviem sarakstiem, lai vienmēr būtu 24 stundu formāts.
+    var parts = config.time.split(':');
+    var hours = [], minutes = [];
+    for (var i = 0; i < 24; i++) hours.push(i);
+    for (var j = 0; j < 60; j += 5) minutes.push(j);
+    if (minutes.indexOf(+parts[1]) < 0) { minutes.push(+parts[1]); minutes.sort(function (a, b) { return a - b; }); }
+    fillSelect($('sHour'), hours, +parts[0]);
+    fillSelect($('sMinute'), minutes, +parts[1]);
+
+    $('sKids').value = config.kids.join('\n');
+    $('sParents').value = config.parents.join('\n');
+
+    var box = $('sTasks');
+    box.textContent = '';
+    ALL_TASKS.forEach(function (task, i) {
+      var label = document.createElement('label');
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = i;
+      cb.checked = config.tasks.indexOf(task) >= 0;
+      label.append(cb, span('', task));
+      box.appendChild(label);
+    });
+
+    $('sCode').value = config.code || '';
+    dlg.showModal();
+  });
+
+  $('sCancel').addEventListener('click', function () { dlg.close(); });
+
+  $('sReset').addEventListener('click', function () {
+    state.done = {};
+    clearMoods();
+    saveState();
+    render();
+    dlg.close();
+  });
+
+  $('settingsForm').addEventListener('submit', function () {
+    // Vārdi: bez tukšām rindām un dublikātiem (arī starp bērniem un vecākiem).
+    function names(text, taken) {
+      var list = [];
+      text.split('\n').forEach(function (s) {
+        s = s.trim().slice(0, 60);
+        if (s && list.indexOf(s) < 0 && taken.indexOf(s) < 0) list.push(s);
+      });
+      return list;
+    }
+    var kids = names($('sKids').value, []);
+    if (!kids.length) kids = config.kids;
+    var parents = names($('sParents').value, kids);
+
+    var tasks = [];
+    $('sTasks').querySelectorAll('input:checked').forEach(function (cb) { tasks.push(ALL_TASKS[+cb.value]); });
+
+    var before = peopleKey();
+    config.time = $('sHour').value + ':' + $('sMinute').value;
+    config.kids = kids;
+    config.parents = parents;
+    if (peopleKey() !== before) config.kidsDirty = true;
+    config.tasks = tasks;
+    saveConfig();
+    mode = getMode(new Date());
+    render();
+    tick();
+
+    // Ģimenes kods: pirmā ierīce to uzstāda, pārējās tikai pārbauda.
+    // Lai nomainītu, ierīcei jāzina iepriekšējais kods.
+    var code = $('sCode').value.trim();
+    if (!code || code === config.code) { syncKids(); return; }
+
+    rpc('use_family_code', { p_code: code, p_old: config.code || null }).then(function (result) {
+      if (result === 'wrong') {
+        alert('Ģimenes kods nav pareizs.');
+        return;
+      }
+      config.code = code;
+      // Pievienojoties jau esošam kodam, bērnu sarakstu ņem no datubāzes.
+      if (result === 'ok') config.kidsDirty = false;
+      if (result === 'set') config.kidsDirty = true;
+      saveConfig();
+      flush();
+      syncKids();
+      if (result === 'set') alert('Ģimenes kods uzstādīts. Ievadi to pašu kodu arī citās ierīcēs.');
+      if (result === 'changed') alert('Ģimenes kods nomainīts. Citās ierīcēs jāievada jaunais kods.');
+    }, function () {
+      alert('Neizdevās pārbaudīt ģimenes kodu. Pārbaudi interneta savienojumu un mēģini vēlreiz.');
+    });
+  });
+
+  // ---------- Statistika ----------
+  var statsDlg = $('stats');
+  var statsBody = $('statsBody');
+
+  function statsMessage(text) {
+    statsBody.textContent = '';
+    var p = document.createElement('div');
+    p.className = 'stats-msg';
+    p.textContent = text;
+    statsBody.appendChild(p);
+  }
+
+  function cell(tag, text, cls) {
+    var el = document.createElement(tag);
+    el.textContent = text;
+    if (cls) el.className = cls;
+    return el;
+  }
+
+  function renderStats(rows) {
+    if (!rows.length) { statsMessage('Šajā periodā vēl nav ierakstu.'); return; }
+
+    // Kolonnas: vispirms pašreizējie bērni un vecāki, tad citi vārdi, kas atrodami vēsturē.
+    var kids = config.kids.concat(config.parents);
+    var byDay = {};
+    var days = [];
+    rows.forEach(function (r) {
+      if (kids.indexOf(r.child) < 0) kids.push(r.child);
+      if (!byDay[r.day]) { byDay[r.day] = {}; days.push(r.day); }
+      byDay[r.day][r.child] = r.mood;
+    });
+
+    var table = document.createElement('table');
+    var head = document.createElement('tr');
+    head.appendChild(cell('th', 'Diena'));
+    kids.forEach(function (k) { head.appendChild(cell('th', k)); });
+    table.appendChild(head);
+
+    var summary = document.createElement('tr');
+    summary.className = 'summary';
+    summary.appendChild(cell('td', 'Kopā'));
+    kids.forEach(function (k) {
+      var counts = {};
+      rows.forEach(function (r) {
+        if (r.child === k && MOOD_BY_ID[r.mood]) counts[r.mood] = (counts[r.mood] || 0) + 1;
+      });
+      var text = MOODS.map(function (m) { return counts[m.id] ? m.face + ' ' + counts[m.id] : ''; })
+        .filter(Boolean).join('  ');
+      summary.appendChild(cell('td', text || '–'));
+    });
+    table.appendChild(summary);
+
+    days.forEach(function (day) {
+      var tr = document.createElement('tr');
+      var d = new Date(day + 'T12:00:00');
+      tr.appendChild(cell('td', d.toLocaleDateString('lv-LV', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' })));
+      kids.forEach(function (k) {
+        var m = MOOD_BY_ID[byDay[day][k]];
+        var td = cell('td', m ? m.face : '–', m ? 'face' : '');
+        if (m) td.title = m.label;
+        tr.appendChild(td);
+      });
+      table.appendChild(tr);
+    });
+
+    statsBody.textContent = '';
+    statsBody.appendChild(table);
+  }
+
+  function loadStats() {
+    if (!config.code) {
+      statsMessage('Lai redzētu statistiku, iestatījumos (⚙️) ievadi ģimenes kodu.');
+      return;
+    }
+    statsMessage('Ielādē…');
+    var from = new Date();
+    from.setDate(from.getDate() - (+$('statsRange').value));
+    rpc('get_moods', { p_code: config.code, p_from: dayKey(from) })
+      .then(renderStats, function () {
+        statsMessage('Neizdevās ielādēt datus. Pārbaudi interneta savienojumu un ģimenes kodu.');
+      });
+  }
+
+  $('statsBtn').addEventListener('click', function () {
+    flush();
+    statsDlg.showModal();
+    loadStats();
+  });
+  $('statsRange').addEventListener('change', loadStats);
+  $('statsClose').addEventListener('click', function () { statsDlg.close(); });
+
+  // ---------- Starts ----------
+  // Neļaut ekrānam izslēgties (darbojas tikai https vai localhost).
+  function keepAwake() {
+    if (!('wakeLock' in navigator)) return;
+    navigator.wakeLock.request('screen').catch(function () {});
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') { keepAwake(); tick(); syncKids(); }
+  });
+  keepAwake();
+
+  render();
+  tick();
+  setInterval(tick, 1000);
+
+  // Nenosūtītās izmaiņas mēģina nosūtīt vēlreiz, kad atgriežas internets.
+  window.addEventListener('online', function () { flush(); syncKids(); });
+  setInterval(flush, 30000);
+  flush();
+  syncKids();
+})();
+</script>
+</body>
+</html>
