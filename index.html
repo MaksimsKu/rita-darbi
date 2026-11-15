@@ -41,7 +41,7 @@
     flex: none;
     background: var(--card);
     border-radius: 24px;
-    padding: 10px 64px 14px;
+    padding: 10px 116px 14px;
     text-align: center;
     box-shadow: 0 2px 10px rgba(30, 60, 90, .08);
     position: relative;
@@ -71,6 +71,8 @@
     background: transparent; font-size: 1.6rem; opacity: .35; cursor: pointer;
   }
   .stats-btn { right: auto; left: 8px; }
+  .fs-btn { right: auto; left: 60px; color: var(--text); display: grid; place-items: center; }
+  .fs-btn[hidden] { display: none; }
 
   /* Bērnu kolonnas: vienmēr visas blakus, aizpilda atlikušo augstumu. */
   .kids {
@@ -268,7 +270,9 @@
   .stats-body th, .stats-body td { padding: 8px 10px; text-align: center; border-bottom: 1px solid #e3eaf2; }
   .stats-body th { position: sticky; top: 0; background: #fff; font-size: 1.1rem; }
   .stats-body th:first-child, .stats-body td:first-child { text-align: left; color: var(--muted); white-space: nowrap; }
-  .stats-body td.face { font-size: 1.8rem; }
+  .stats-body .entry { display: inline-block; margin: 0 5px; text-align: center; }
+  .stats-body .entry-face { display: block; font-size: 1.7rem; line-height: 1.15; }
+  .stats-body .entry-time { display: block; font-size: .75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
   .stats-body tr.summary td { font-weight: 600; background: #f8fafc; }
   .stats-msg { text-align: center; color: var(--muted); padding: 24px 0; }
 </style>
@@ -277,6 +281,9 @@
 
 <section class="timer" id="timer">
   <button class="gear stats-btn" id="statsBtn" aria-label="Garastāvokļa statistika">📊</button>
+  <button class="gear fs-btn" id="fsBtn" aria-label="Pilnekrāna režīms" hidden>
+    <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+  </button>
   <button class="gear" id="gear" aria-label="Iestatījumi">⚙️</button>
   <div class="now"><span id="nowDate"></span><span class="now-time"> · <b id="nowTime"></b></span></div>
   <div class="timer-value" id="timerValue">--:--</div>
@@ -300,7 +307,7 @@
     <textarea id="sParents" rows="2"></textarea>
     <div class="field-title">Uzdevumi</div>
     <div class="task-options" id="sTasks"></div>
-    <label for="sCode">Ģimenes kods <small>(vismaz 6 zīmes; vienāds visās ierīcēs, vajadzīgs datu saglabāšanai)</small></label>
+    <label for="sCode">Ģimenes kods <small>(vismaz 6 zīmes; katram kodam ir sava ģimene ar saviem datiem)</small></label>
     <input type="text" id="sCode" minlength="6" maxlength="72" autocomplete="off" autocapitalize="off" spellcheck="false">
     <div class="buttons">
       <button type="button" id="sReset">Notīrīt šodienas atzīmes</button>
@@ -435,44 +442,77 @@
     }).then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.status === 204 ? null : r.json();
+    }).then(function (res) {
+      // Serveris kļūdas atgriež kā { error: 'kods' }.
+      if (res && res.error) {
+        var e = new Error(res.error);
+        e.code = res.error;
+        throw e;
+      }
+      return res;
     });
   }
 
-  // Vēl nenosūtītās garastāvokļa izmaiņas: "diena|bērns" -> numurs vai null (dzēst).
-  // Glabājas lokāli, lai nekas nepazustu, ja brīdī nav interneta.
-  var pending = load(PENDING_KEY, {});
+  function errorText(e) {
+    if (e && e.code === 'too_many_codes') return 'Stundas laikā ievadīti pārāk daudzi dažādi ģimenes kodi. Mēģini vēlreiz vēlāk.';
+    if (e && e.code === 'not_found') return 'Ģimene ar šo kodu nav atrasta.';
+    if (e && e.code === 'bad_code') return 'Ģimenes kodam jābūt vismaz 6 zīmes garam.';
+    return 'Neizdevās savienoties ar datubāzi. Pārbaudi interneta savienojumu un mēģini vēlreiz.';
+  }
+
+  // Vēl nenosūtītie emociju nospiedieni. Katrs nospiediens ir atsevišķs ieraksts datubāzē
+  // ar savu laiku; rinda glabājas lokāli, lai nekas nepazustu, ja brīdī nav interneta.
+  function newId() { return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12); }
+
+  var pending = load(PENDING_KEY, []);
+  if (!Array.isArray(pending)) {
+    // Vecais formāts: "diena|vārds" -> emocijas numurs.
+    var oldPending = pending;
+    pending = [];
+    Object.keys(oldPending).forEach(function (key) {
+      var sep = key.indexOf('|');
+      if (oldPending[key] != null && sep > 0) {
+        pending.push({ id: newId(), day: key.slice(0, sep), child: key.slice(sep + 1), mood: oldPending[key], at: new Date().toISOString() });
+      }
+    });
+    save(PENDING_KEY, pending);
+  }
   var flushing = false;
 
   function queueMood(day, child, mood) {
-    pending[day + '|' + child] = mood;
+    // Nospiediens pieder tai ģimenei, kuras kods bija ievadīts nospiešanas brīdī.
+    pending.push({ id: newId(), code: config.code || null, day: day, child: child, mood: mood, at: new Date().toISOString() });
     save(PENDING_KEY, pending);
     flush();
   }
 
   function flush() {
-    var keys = Object.keys(pending);
-    // Bez ģimenes koda izmaiņas gaida rindā, līdz kods tiek ievadīts.
-    if (flushing || !keys.length || !config.code) return;
+    // Bez ģimenes koda nospiedieni gaida rindā, līdz kods tiek ievadīts.
+    if (flushing || !pending.length || !config.code) return;
     flushing = true;
-    var key = keys[0];
-    var value = pending[key];
-    var sep = key.indexOf('|');
-    rpc('save_mood', {
-      p_code: config.code,
-      p_day: key.slice(0, sep),
-      p_child: key.slice(sep + 1),
-      p_mood: value   // null nozīmē dzēst ierakstu
-    }).then(function () {
-      // Ja pa to laiku izvēle mainīta vēlreiz, atstāj rindā jaunāko vērtību.
-      if (pending[key] === value) { delete pending[key]; save(PENDING_KEY, pending); }
+    var item = pending[0];
+    function done() {
+      pending = pending.filter(function (p) { return p.id !== item.id; });
+      save(PENDING_KEY, pending);
       flushing = false;
       flush();
-    }, function () { flushing = false; });
+    }
+    rpc('mood_add', {
+      p_code: item.code || config.code,
+      p_day: item.day,
+      p_child: item.child,
+      p_mood: item.mood,
+      p_at: item.at,
+      p_client_id: item.id   // neļauj vienu nospiedienu saglabāt divreiz, ja sūtījums atkārtojas
+    }).then(done, function (e) {
+      // Ierakstu, ko serveris nekad nepieņems, izmet, lai tas nebloķē rindu; pārējos mēģina vēlāk.
+      if (e && (e.code === 'bad_input' || e.code === 'day_limit' || e.code === 'not_found' || e.code === 'bad_code')) done();
+      else flushing = false;
+    });
   }
 
-  // Nodzēš šodienas garastāvokļus gan ekrānā, gan datubāzē.
+  // Notīra šodienas sajūtas ekrānā. Datubāzē jau saglabātie nospiedieni paliek.
   function clearMoods() {
-    Object.keys(state.mood).forEach(function (name) { queueMood(state.day, name, null); });
     state.mood = {};
   }
 
@@ -484,12 +524,12 @@
     if (!config.code) return;
     if (config.kidsDirty) {
       var sent = peopleKey();
-      rpc('set_people', { p_code: config.code, p_kids: config.kids, p_parents: config.parents }).then(function () {
+      rpc('people_set', { p_code: config.code, p_kids: config.kids, p_parents: config.parents }).then(function () {
         if (peopleKey() === sent) { config.kidsDirty = false; saveConfig(); }
       }, function () {});
       return;
     }
-    rpc('get_people', { p_code: config.code }).then(function (people) {
+    rpc('people_get', { p_code: config.code }).then(function (people) {
       if (!people || !Array.isArray(people.kids) || !Array.isArray(people.parents) || config.kidsDirty) return;
       var before = peopleKey();
       // Ja datubāzē kāda saraksta vēl nav, paliek šīs ierīces saraksts un to nosūta.
@@ -603,7 +643,8 @@
     });
   }
 
-  // Emociju izvēle vienam cilvēkam. Atkārtots pieskāriens izvēlētajai emocijai to noņem.
+  // Emociju izvēle vienam cilvēkam. Katrs pieskāriens tiek saglabāts kā jauns ieraksts;
+  // ekrānā redzama pēdējā šodien izvēlētā emocija.
   var pickerDlg = $('picker');
   function openPicker(name) {
     $('pickerTitle').textContent = name + ' — kā es jūtos?';
@@ -619,12 +660,12 @@
       b.setAttribute('aria-pressed', selected ? 'true' : 'false');
       b.append(span('face', mood.face), span('', mood.label));
       b.addEventListener('click', function () {
-        if (selected) delete state.mood[name]; else state.mood[name] = mood.id;
+        state.mood[name] = mood.id;
         saveState();
-        queueMood(state.day, name, selected ? null : mood.id);
+        queueMood(state.day, name, mood.id);
         render();
         pickerDlg.close();
-        if (!selected) showSplash(mood);
+        showSplash(mood);
       });
       grid.appendChild(b);
     });
@@ -791,27 +832,39 @@
     render();
     tick();
 
-    // Ģimenes kods: pirmā ierīce to uzstāda, pārējās tikai pārbauda.
-    // Lai nomainītu, ierīcei jāzina iepriekšējais kods.
+    // Ģimenes kods: katram kodam ir sava ģimene ar saviem datiem.
+    // Esošs kods pieslēdz tai ģimenei; nezināmam kodam piedāvā izveidot jaunu ģimeni.
     var code = $('sCode').value.trim();
     if (!code || code === config.code) { syncKids(); return; }
 
-    rpc('use_family_code', { p_code: code, p_old: config.code || null }).then(function (result) {
-      if (result === 'wrong') {
-        alert('Ģimenes kods nav pareizs.');
-        return;
-      }
+    function enterFamily(created) {
+      var switching = !!config.code;
       config.code = code;
-      // Pievienojoties jau esošam kodam, bērnu sarakstu ņem no datubāzes.
-      if (result === 'ok') config.kidsDirty = false;
-      if (result === 'set') config.kidsDirty = true;
+      // Jauna ģimene saņem šīs ierīces cilvēku sarakstu; esošai sarakstu ņem no datubāzes.
+      config.kidsDirty = created;
       saveConfig();
+      if (switching) {
+        // Ekrānā redzamās atzīmes piederēja iepriekšējai ģimenei.
+        state.done = {};
+        state.mood = {};
+        saveState();
+        render();
+      }
       flush();
       syncKids();
-      if (result === 'set') alert('Ģimenes kods uzstādīts. Ievadi to pašu kodu arī citās ierīcēs.');
-      if (result === 'changed') alert('Ģimenes kods nomainīts. Citās ierīcēs jāievada jaunais kods.');
-    }, function () {
-      alert('Neizdevās pārbaudīt ģimenes kodu. Pārbaudi interneta savienojumu un mēģini vēlreiz.');
+      alert(created
+        ? 'Izveidota jauna ģimene. Lai pieslēgtu citas ierīces, ievadi tajās to pašu kodu.'
+        : 'Pieslēgts ģimenei ar šo kodu.');
+    }
+
+    rpc('family_open', { p_code: code, p_create: false }).then(function () {
+      enterFamily(false);
+    }, function (e) {
+      if (!e || e.code !== 'not_found') { alert(errorText(e)); return; }
+      if (!confirm('Ģimene ar šādu kodu vēl neeksistē. Izveidot jaunu ģimeni ar šo kodu?')) return;
+      rpc('family_open', { p_code: code, p_create: true }).then(function (res) {
+        enterFamily(res.status === 'created');
+      }, function (e2) { alert(errorText(e2)); });
     });
   });
 
@@ -844,7 +897,7 @@
     rows.forEach(function (r) {
       if (kids.indexOf(r.child) < 0) kids.push(r.child);
       if (!byDay[r.day]) { byDay[r.day] = {}; days.push(r.day); }
-      byDay[r.day][r.child] = r.mood;
+      (byDay[r.day][r.child] = byDay[r.day][r.child] || []).push(r);
     });
 
     var table = document.createElement('table');
@@ -872,9 +925,17 @@
       var d = new Date(day + 'T12:00:00');
       tr.appendChild(cell('td', d.toLocaleDateString('lv-LV', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' })));
       kids.forEach(function (k) {
-        var m = MOOD_BY_ID[byDay[day][k]];
-        var td = cell('td', m ? m.face : '–', m ? 'face' : '');
-        if (m) td.title = m.label;
+        // Visi dienas nospiedieni laika secībā, katrs ar pulksteņa laiku.
+        var entries = (byDay[day][k] || []).filter(function (r) { return MOOD_BY_ID[r.mood]; });
+        var td = cell('td', entries.length ? '' : '–');
+        entries.forEach(function (r) {
+          var m = MOOD_BY_ID[r.mood];
+          var at = r.at ? new Date(r.at) : null;
+          var entry = span('entry', '');
+          entry.title = m.label;
+          entry.append(span('entry-face', m.face), span('entry-time', at ? pad(at.getHours()) + ':' + pad(at.getMinutes()) : ''));
+          td.appendChild(entry);
+        });
         tr.appendChild(td);
       });
       table.appendChild(tr);
@@ -892,10 +953,8 @@
     statsMessage('Ielādē…');
     var from = new Date();
     from.setDate(from.getDate() - (+$('statsRange').value));
-    rpc('get_moods', { p_code: config.code, p_from: dayKey(from) })
-      .then(renderStats, function () {
-        statsMessage('Neizdevās ielādēt datus. Pārbaudi interneta savienojumu un ģimenes kodu.');
-      });
+    rpc('moods_list', { p_code: config.code, p_from: dayKey(from) })
+      .then(function (res) { renderStats(res.rows || []); }, function (e) { statsMessage(errorText(e)); });
   }
 
   $('statsBtn').addEventListener('click', function () {
@@ -905,6 +964,20 @@
   });
   $('statsRange').addEventListener('change', loadStats);
   $('statsClose').addEventListener('click', function () { statsDlg.close(); });
+
+  // ---------- Pilnekrāna režīms ----------
+  // Paslēpj pārlūka adreses joslu un navigāciju; atkārtots pieskāriens atgriež parasto skatu.
+  var fsRoot = document.documentElement;
+  var fsRequest = fsRoot.requestFullscreen || fsRoot.webkitRequestFullscreen;
+  var fsExit = document.exitFullscreen || document.webkitExitFullscreen;
+  if (fsRequest && fsExit) {
+    $('fsBtn').hidden = false;
+    $('fsBtn').addEventListener('click', function () {
+      var active = document.fullscreenElement || document.webkitFullscreenElement;
+      var result = active ? fsExit.call(document) : fsRequest.call(fsRoot, { navigationUI: 'hide' });
+      if (result && result.catch) result.catch(function () {});
+    });
+  }
 
   // ---------- Starts ----------
   // Neļaut ekrānam izslēgties (darbojas tikai https vai localhost).
