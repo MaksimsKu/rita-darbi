@@ -215,10 +215,14 @@
   #splash[hidden] { display: none; }
   #splash.leaving { opacity: 0; }
   .splash-face {
-    font-size: min(58vh, 62vw); line-height: 1.1;
+    font-size: min(52vh, 60vw); line-height: 1.1;
     animation: splash-pop .6s cubic-bezier(.2, 1.6, .4, 1) both, splash-float 2.4s ease-in-out .6s infinite;
   }
   .splash-label { font-size: min(8vh, 9vw); font-weight: 800; animation: splash-fade .5s .3s both; }
+  .splash-title {
+    max-width: 94vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: min(7vh, 8vw); font-weight: 800; color: var(--muted);
+  }
   @keyframes splash-pop {
     from { transform: scale(.2) rotate(-20deg); opacity: 0; }
     to { transform: scale(1) rotate(0); opacity: 1; }
@@ -318,6 +322,7 @@
 </dialog>
 
 <div id="splash" hidden>
+  <div class="splash-title" id="splashTitle"></div>
   <div class="splash-face" id="splashFace"></div>
   <div class="splash-label" id="splashLabel"></div>
 </div>
@@ -563,6 +568,45 @@
   }
   var mode = getMode(new Date());
 
+  // ---------- Modinātāja skaņa ----------
+  // Skaņa tiek sintezēta pārlūkā (bez audio faila): 3 zvani, katrā 4 īsi pīkstieni.
+  // Pārlūks ļauj atskaņot skaņu tikai pēc tam, kad lapai kāds ir pieskāries,
+  // tāpēc audio tiek sagatavots pie pirmā pieskāriena.
+  var ALARM_RINGS = 3;
+  var alarmFor = null;   // izbraukšanas brīdis, kuram modinātājs jau noskanējis
+  var audioCtx = null;
+  function getAudio() {
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    if (!audioCtx) audioCtx = new AC();
+    if (audioCtx.state === 'suspended') audioCtx.resume().catch(function () {});
+    return audioCtx;
+  }
+  document.addEventListener('pointerdown', getAudio, { passive: true });
+
+  function playAlarm() {
+    var ctx = getAudio();
+    if (!ctx) return;
+    var start = ctx.currentTime + 0.05;
+    for (var ring = 0; ring < ALARM_RINGS; ring++) {
+      for (var beep = 0; beep < 4; beep++) {
+        var t = start + ring * 1.1 + beep * 0.16;
+        var osc = ctx.createOscillator();
+        var gain = ctx.createGain();
+        osc.type = 'square';
+        osc.frequency.value = 2000;
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(0.3, t + 0.01);
+        gain.gain.setValueAtTime(0.3, t + 0.08);
+        gain.gain.linearRampToValueAtTime(0, t + 0.1);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(t);
+        osc.stop(t + 0.11);
+      }
+    }
+  }
+
   // Sadala "🥣 Paēst brokastis" emocijzīmē un tekstā.
   function splitTask(s) {
     var m = s.match(/^([^\p{L}\p{N}]+)\s*(.+)$/u);
@@ -665,7 +709,7 @@
         queueMood(state.day, name, mood.id);
         render();
         pickerDlg.close();
-        showSplash(mood);
+        showSplash(mood, name);
       });
       grid.appendChild(b);
     });
@@ -673,11 +717,12 @@
   }
   $('pickerClose').addEventListener('click', function () { pickerDlg.close(); });
 
-  // Pēc izvēles emocija 5 sekundes redzama pa visu ekrānu; pieskāriens aizver ātrāk.
-  var SPLASH_MS = 5000;
+  // Pēc izvēles emocija 3 sekundes redzama pa visu ekrānu; pieskāriens aizver ātrāk.
+  var SPLASH_MS = 3000;
   var splash = $('splash');
   var splashTimer, splashHideTimer;
-  function showSplash(mood) {
+  function showSplash(mood, name) {
+    $('splashTitle').textContent = name + ' jūtas';
     clearTimeout(splashTimer);
     clearTimeout(splashHideTimer);
     $('splashFace').textContent = mood.face;
@@ -727,6 +772,12 @@
       timer.classList.remove('late');
       $('timerValue').textContent = pad(now.getHours()) + ':' + pad(now.getMinutes());
       return;
+    }
+
+    // Brīdī, kad taimeris sasniedz 00:00, vienreiz noskan modinātājs.
+    if (ms <= 0 && ms > -5000 && alarmFor !== target.getTime()) {
+      alarmFor = target.getTime();
+      playAlarm();
     }
 
     if (ms <= 0) {
