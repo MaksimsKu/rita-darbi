@@ -159,6 +159,18 @@
   .mood-btn .face { font-size: 1.4em; line-height: 1; }
   .mood-btn.chosen { background: #fff6d6; border-color: #f2c230; color: var(--text); }
 
+  /* Vecāku sajūtu pogas uzdevumu skata apakšā */
+  .parents-row {
+    flex: none; display: grid; gap: 12px;
+    grid-template-columns: repeat(var(--n, 2), minmax(0, 1fr));
+  }
+  .parents-row[hidden] { display: none; }
+  .parents-row .mood-btn {
+    background: var(--card); border-color: transparent; border-radius: 20px; padding: .55em .6em;
+    box-shadow: 0 2px 10px rgba(30, 60, 90, .08);
+  }
+  .parents-row .mood-btn.chosen { background: #fff6d6; border-color: #f2c230; }
+
   /* Gaidīšanas skats: liela poga katram cilvēkam; uzspiežot atveras emociju izvēle. */
   .kids.mood-only {
     grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr));
@@ -296,6 +308,7 @@
 </section>
 
 <main class="kids" id="kids"></main>
+<div class="parents-row" id="parentsRow" hidden></div>
 
 <dialog id="settings">
   <form method="dialog" id="settingsForm">
@@ -620,8 +633,26 @@
     return el;
   }
 
+  // Izvēlētā emocija ekrānā redzama 30 minūtes; pēc tam poga atgriežas "Kā es jūtos?" stāvoklī.
+  // (Datubāzē nospiediens paliek.) state.mood: vārds -> { id, at }.
+  var MOOD_SHOWN_MS = 30 * 60000;
+  function shownMood(name) {
+    var m = state.mood[name];
+    if (!m || typeof m !== 'object' || Date.now() - m.at >= MOOD_SHOWN_MS) return null;
+    return MOOD_BY_ID[m.id] || null;
+  }
+  // Kuras emocijas šobrīd redzamas — lai pamanītu, kad kāda ir beigusies un skats jāpārzīmē.
+  function shownMoodsKey() {
+    return config.kids.concat(config.parents).map(function (name) {
+      var m = shownMood(name);
+      return m ? m.id : '';
+    }).join('|');
+  }
+  var renderedMoodsKey = '';
+
   // ---------- Galvenais skats ----------
   function render() {
+    renderedMoodsKey = shownMoodsKey();
     var moodOnly = mode === 'mood';
     var people = moodOnly ? config.kids.concat(config.parents) : config.kids;
     kidsEl.textContent = '';
@@ -631,7 +662,7 @@
     kidsEl.style.setProperty('--cols', Math.max(1, Math.ceil(Math.sqrt(people.length))));
 
     people.forEach(function (name) {
-      var mood = MOOD_BY_ID[state.mood[name]];
+      var mood = shownMood(name);
 
       if (moodOnly) {
         var person = document.createElement('button');
@@ -685,6 +716,23 @@
 
       kidsEl.appendChild(col);
     });
+
+    // Uzdevumu skatā apakšā ir arī vecāku sajūtu pogas (gaidīšanas skatā vecākiem ir lielās pogas).
+    var parentsRow = $('parentsRow');
+    parentsRow.textContent = '';
+    parentsRow.hidden = moodOnly || !config.parents.length;
+    if (!parentsRow.hidden) {
+      parentsRow.style.setProperty('--n', config.parents.length);
+      config.parents.forEach(function (name) {
+        var mood = shownMood(name);
+        var btn = document.createElement('button');
+        btn.className = 'mood-btn' + (mood ? ' chosen' : '');
+        btn.append(span('face', mood ? mood.face : '🙂'),
+          span('', mood ? name + ' jūtas: ' + mood.label : 'Kā jūtas ' + name + '?'));
+        btn.addEventListener('click', function () { openPicker(name); });
+        parentsRow.appendChild(btn);
+      });
+    }
   }
 
   // Emociju izvēle vienam cilvēkam. Katrs pieskāriens tiek saglabāts kā jauns ieraksts;
@@ -695,7 +743,7 @@
     var grid = $('pickerGrid');
     grid.textContent = '';
     PICKABLE_MOODS.forEach(function (mood, i) {
-      var selected = state.mood[name] === mood.id;
+      var selected = (shownMood(name) || {}).id === mood.id;
       var b = document.createElement('button');
       b.type = 'button';
       b.className = 'pick' + (selected ? ' selected' : '');
@@ -704,7 +752,7 @@
       b.setAttribute('aria-pressed', selected ? 'true' : 'false');
       b.append(span('face', mood.face), span('', mood.label));
       b.addEventListener('click', function () {
-        state.mood[name] = mood.id;
+        state.mood[name] = { id: mood.id, at: Date.now() };
         saveState();
         queueMood(state.day, name, mood.id);
         render();
@@ -759,6 +807,9 @@
         saveState();
       }
       mode = newMode;
+      render();
+    } else if (shownMoodsKey() !== renderedMoodsKey) {
+      // Kādam beigušās 30 minūtes — poga atgriežas sākuma stāvoklī.
       render();
     }
 
