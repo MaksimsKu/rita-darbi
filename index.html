@@ -227,10 +227,15 @@
   #splash[hidden] { display: none; }
   #splash.leaving { opacity: 0; }
   .splash-face {
-    font-size: min(52vh, 60vw); line-height: 1.1;
+    font-size: min(46vh, 56vw); line-height: 1.1;
     animation: splash-pop .6s cubic-bezier(.2, 1.6, .4, 1) both, splash-float 2.4s ease-in-out .6s infinite;
   }
   .splash-label { font-size: min(8vh, 9vw); font-weight: 800; animation: splash-fade .5s .3s both; }
+  .splash-cancel {
+    margin-top: 3vh; padding: .5em 1.8em;
+    border: 3px solid #c3cfdb; border-radius: 999px; background: #fff; color: var(--text);
+    font: inherit; font-weight: 700; font-size: min(4.5vh, 5vw); cursor: pointer;
+  }
   .splash-title {
     max-width: 94vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     font-size: min(7vh, 8vw); font-weight: 800; color: var(--muted);
@@ -338,6 +343,7 @@
   <div class="splash-title" id="splashTitle"></div>
   <div class="splash-face" id="splashFace"></div>
   <div class="splash-label" id="splashLabel"></div>
+  <button type="button" class="splash-cancel" id="splashCancel">Atcelt</button>
 </div>
 
 <dialog id="picker">
@@ -752,12 +758,21 @@
       b.setAttribute('aria-pressed', selected ? 'true' : 'false');
       b.append(span('face', mood.face), span('', mood.label));
       b.addEventListener('click', function () {
+        var previous = state.mood[name];
+        var day = state.day;
         state.mood[name] = { id: mood.id, at: Date.now() };
         saveState();
-        queueMood(state.day, name, mood.id);
         render();
         pickerDlg.close();
-        showSplash(mood, name);
+        showSplash(mood, name, function () {
+          queueMood(day, name, mood.id);
+        }, function () {
+          // Atcelts: nekas netiek saglabāts, un ekrānā atgriežas iepriekšējais stāvoklis.
+          if (state.day !== day) return;
+          if (previous) state.mood[name] = previous; else delete state.mood[name];
+          saveState();
+          render();
+        });
       });
       grid.appendChild(b);
     });
@@ -766,28 +781,42 @@
   $('pickerClose').addEventListener('click', function () { pickerDlg.close(); });
 
   // Pēc izvēles emocija 3 sekundes redzama pa visu ekrānu; pieskāriens aizver ātrāk.
+  // Izvēle tiek saglabāta tikai tad, kad šis skats aizveras; poga "Atcelt" to atceļ.
   var SPLASH_MS = 3000;
   var splash = $('splash');
   var splashTimer, splashHideTimer;
-  function showSplash(mood, name) {
-    $('splashTitle').textContent = name + ' jūtas';
-    clearTimeout(splashTimer);
+  var splashCommit = null, splashCancel = null;
+  function showSplash(mood, name, onCommit, onCancel) {
+    hideSplash(false);   // ja iepriekšējā izvēle vēl gaida, tā tiek saglabāta
     clearTimeout(splashHideTimer);
+    splashCommit = onCommit;
+    splashCancel = onCancel;
+    $('splashTitle').textContent = name + ' jūtas';
     $('splashFace').textContent = mood.face;
     $('splashLabel').textContent = mood.label;
     splash.classList.remove('leaving');
     splash.hidden = false;
-    splashTimer = setTimeout(hideSplash, SPLASH_MS);
+    splashTimer = setTimeout(function () { hideSplash(false); }, SPLASH_MS);
   }
-  function hideSplash() {
+  function hideSplash(cancelled) {
     clearTimeout(splashTimer);
+    var fn = cancelled ? splashCancel : splashCommit;
+    splashCommit = splashCancel = null;
+    if (fn) fn();
+    if (splash.hidden) return;
     splash.classList.add('leaving');
     splashHideTimer = setTimeout(function () {
       splash.hidden = true;
       splash.classList.remove('leaving');
     }, 300);
   }
-  splash.addEventListener('click', hideSplash);
+  splash.addEventListener('click', function () { hideSplash(false); });
+  $('splashCancel').addEventListener('click', function (e) {
+    e.stopPropagation();
+    hideSplash(true);
+  });
+  // Ja lapu aizver, kamēr emocija vēl redzama, izvēle tomēr tiek ielikta nosūtīšanas rindā.
+  window.addEventListener('pagehide', function () { hideSplash(false); });
 
   function tick() {
     var now = new Date();
